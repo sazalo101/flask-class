@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-body">
+                <h2 class="card-title text-center mb-4">Contact Details</h2>
+                <div class="table-responsive">
+                    <table class="table table-bordered">
+                        <tr>
+                            <th class="bg-light">Mobile Number</th>
+                            <td>{{ contact.mobile }}</td>
+                        </tr>
+                        <tr>
+                            <th class="bg-light">Email</th>
+                            <td>{{ contact.email }}</td>
+                        </tr>
+                        <tr>
+                            <th class="bg-light">Address</th>
+                            <td>{{ contact.address }}</td>
+                        </tr>
+                        <tr>
+                            <th class="bg-light">Registration Number</th>
+                            <td>{{ contact.registration_number }}</td>
+                        </tr>
+                    </table>
+                </div>
+                <div class="text-center mt-4">
+                    <a href="{{ url_for('search') }}" class="btn btn-primary">New Search</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

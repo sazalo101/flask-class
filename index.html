@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Hunt for Satoshi - Forest Adventure</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; }
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+            pointer-events: none;
+        }
+        #instructions {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+    <div id="ui">Coins: <span id="coins">0</span> | Zombies: <span id="zombies">2</span></div>
+    <div id="instructions">
+        WASD: Move<br>
+        Mouse: Look around<br>
+        Click: Shoot<br>
+        Find Satoshi and shoot zombies to earn coins
+    </div>
+    <script>
+        // Initialize game variables
+        let coins = 0;
+        let zombieCount = 2;
+        const targets = [];
+        const trees = [];
+        const bullets = [];
+        const zombies = [];
+        let satoshi;
+        let player;
+        let road;
+        let canShoot = true;
+        let playerCanMove = true;
+        
+        // Set up scene
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB); // Sky blue
+        scene.fog = new THREE.FogExp2(0x9db3b5, 0.02); // Add fog for atmosphere
+        
+        // Set up camera
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 1.6, 0); // Height of average human
+        
+        // Set up renderer
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+        
+        // Add lights
+        const ambientLight = new THREE.AmbientLight(0x404040);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        directionalLight.position.set(100, 100, 100);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 2048;
+        directionalLight.shadow.mapSize.height = 2048;
+        directionalLight.shadow.camera.near = 0.5;
+        directionalLight.shadow.camera.far = 500;
+        scene.add(directionalLight);
+        
+        // Create ground
+        const groundGeometry = new THREE.PlaneGeometry(200, 200);
+        const groundMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x228B22,
+            roughness: 0.8,
+            metalness: 0.2
+        });
+        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+        
+        // Create a road
+        const roadGeometry = new THREE.PlaneGeometry(4, 200);
+        const roadMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x777777,
+            roughness: 0.5,
+            metalness: 0.2
+        });
+        road = new THREE.Mesh(roadGeometry, roadMaterial);
+        road.rotation.x = -Math.PI / 2;
+        road.position.y = 0.01; // Slightly above ground to prevent z-fighting
+        road.receiveShadow = true;
+        scene.add(road);
+        
+        // Create player
+        const playerGroup = new THREE.Group();
+        scene.add(playerGroup);
+        
+        const playerGeometry = new THREE.BoxGeometry(0.5, 1.7, 0.5);
+        const playerMaterial = new THREE.MeshStandardMaterial({ color: 0x5555FF });
+        player = new THREE.Mesh(playerGeometry, playerMaterial);
+        player.position.y = 0.85; // Half height
+        player.castShadow = true;
+        playerGroup.add(player);
+        
+        // Add gun to player
+        const gunGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.5);
+        const gunMaterial = new THREE.MeshStandardMaterial({ color: 0x444444 });
+        const gun = new THREE.Mesh(gunGeometry, gunMaterial);
+        gun.position.set(0.25, 0, -0.3);
+        camera.add(gun);
+        scene.add(camera);
+        
+        // Create Satoshi as a human figure
+        function createSatoshi(x, z) {
+            const satoshiGroup = new THREE.Group();
+            
+            // Body
+            const bodyGeometry = new THREE.CylinderGeometry(0.25, 0.25, 1, 8);
+            const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x222222 }); // Black suit
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.position.y = 0.5;
+            body.castShadow = true;
+            satoshiGroup.add(body);
+            
+            // Head
+            const headGeometry = new THREE.SphereGeometry(0.2, 16, 16);
+            const headMaterial = new THREE.MeshStandardMaterial({ color: 0xE0AC69 }); // Skin tone
+            const head = new THREE.Mesh(headGeometry, headMaterial);
+            head.position.y = 1.1;
+            head.castShadow = true;
+            satoshiGroup.add(head);
+            
+            // Arms
+            const armGeometry = new THREE.BoxGeometry(0.1, 0.6, 0.15);
+            const armMaterial = new THREE.MeshStandardMaterial({ color: 0x222222 });
+            
+            const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+            leftArm.position.set(-0.3, 0.7, 0);
+            leftArm.rotation.z = Math.PI / 16;
+            leftArm.castShadow = true;
+            satoshiGroup.add(leftArm);
+            
+            const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+            rightArm.position.set(0.3, 0.7, 0);
+            rightArm.rotation.z = -Math.PI / 16;
+            rightArm.castShadow = true;
+            satoshiGroup.add(rightArm);
+            
+            // Legs
+            const legGeometry = new THREE.BoxGeometry(0.15, 0.8, 0.15);
+            const legMaterial = new THREE.MeshStandardMaterial({ color: 0x222222 });
+            
+            const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
+            leftLeg.position.set(-0.15, -0.1, 0);
+            leftLeg.castShadow = true;
+            satoshiGroup.add(leftLeg);
+            
+            const rightLeg = new THREE.Mesh(legGeometry, legMaterial);
+            rightLeg.position.set(0.15, -0.1, 0);
+            rightLeg.castShadow = true;
+            satoshiGroup.add(rightLeg);
+            
+            // Glasses (signature)
+            const glassesGeometry = new THREE.BoxGeometry(0.3, 0.05, 0.05);
+            const glassesMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
+            const glasses = new THREE.Mesh(glassesGeometry, glassesMaterial);
+            glasses.position.set(0, 1.15, 0.1);
+            satoshiGroup.add(glasses);
+            
+            // Bitcoin badge
+            const badgeGeometry = new THREE.CircleGeometry(0.05, 16);
+            const badgeMaterial = new THREE.MeshStandardMaterial({ color: 0xFFD700, metalness: 0.8 });
+            const badge = new THREE.Mesh(badgeGeometry, badgeMaterial);
+            badge.position.set(0, 0.7, 0.26);
+            badge.rotation.x = -Math.PI / 10;
+            satoshiGroup.add(badge);
+            
+            satoshiGroup.position.set(x, 0, z);
+            satoshiGroup.userData = { isSatoshi: true, found: false };
+            scene.add(satoshiGroup);
+            
+            return satoshiGroup;
+        }
+        
+        satoshi = createSatoshi(30, -15); // Hidden in the forest
+        
+        // Create zombie
+        function createZombie(x, z) {
+            const zombieGroup = new THREE.Group();
+            
+            // Body
+            const bodyGeometry = new THREE.CylinderGeometry(0.25, 0.25, 1, 8);
+            const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x2D572C }); // Zombie green
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.position.y = 0.5;
+            body.castShadow = true;
+            zombieGroup.add(body);
+            
+            // Head
+            const headGeometry = new THREE.SphereGeometry(0.2, 16, 16);
+            const headMaterial = new THREE.MeshStandardMaterial({ color: 0x66AA66 }); // Zombie skin
+            const head = new THREE.Mesh(headGeometry, headMaterial);
+            head.position.y = 1.1;
+            head.castShadow = true;
+            zombieGroup.add(head);
+            
+            // Arms
+            const armGeometry = new THREE.BoxGeometry(0.1, 0.6, 0.15);
+            const armMaterial = new THREE.MeshStandardMaterial({ color: 0x66AA66 });
+            
+            const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+            leftArm.position.set(-0.3, 0.7, 0);
+            leftArm.rotation.z = Math.PI / 6; // Raised arm
+            leftArm.castShadow = true;
+            zombieGroup.add(leftArm);
+            
+            const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+            rightArm.position.set(0.3, 0.7, 0);
+            rightArm.rotation.z = -Math.PI / 6; // Raised arm
+            rightArm.castShadow = true;
+            zombieGroup.add(rightArm);
+            
+            // Legs
+            const legGeometry = new THREE.BoxGeometry(0.15, 0.8, 0.15);
+            const legMaterial = new THREE.MeshStandardMaterial({ color: 0x66AA66 });
+            
+            const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
+            leftLeg.position.set(-0.15, -0.1, 0);
+            leftLeg.castShadow = true;
+            zombieGroup.add(leftLeg);
+            
+            const rightLeg = new THREE.Mesh(legGeometry, legMaterial);
+            rightLeg.position.set(0.15, -0.1, 0);
+            rightLeg.castShadow = true;
+            zombieGroup.add(rightLeg);
+            
+            // Red eyes
+            const eyeGeometry = new THREE.SphereGeometry(0.04, 8, 8);
+            const eyeMaterial = new THREE.MeshStandardMaterial({ color: 0xFF0000, emissive: 0xFF0000, emissiveIntensity: 0.5 });
+            
+            const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            leftEye.position.set(-0.08, 1.15, 0.15);
+            zombieGroup.add(leftEye);
+            
+            const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            rightEye.position.set(0.08, 1.15, 0.15);
+            zombieGroup.add(rightEye);
+            
+            zombieGroup.position.set(x, 0, z);
+            zombieGroup.rotation.y = Math.random() * Math.PI * 2;
+            zombieGroup.userData = { isZombie: true, health: 100, speed: 0.02 + Math.random() * 0.01 };
+            scene.add(zombieGroup);
+            
+            return zombieGroup;
+        }
+        
+        // Create two zombies
+        zombies.push(createZombie(-10, 10));
+        zombies.push(createZombie(15, -5));
+        
+        // Function to create trees
+        function createTree(x, z) {
+            const treeGroup = new THREE.Group();
+            
+            // Tree trunk
+            const trunkGeometry = new THREE.CylinderGeometry(0.2, 0.3, 2, 8);
+            const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+            const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+            trunk.position.y = 1;
+            trunk.castShadow = true;
+            treeGroup.add(trunk);
+            
+            // Tree foliage
+            const foliageGeometry = new THREE.ConeGeometry(1, 2, 8);
+            const foliageMaterial = new THREE.MeshStandardMaterial({ color: 0x006400 });
+            const foliage = new THREE.Mesh(foliageGeometry, foliageMaterial);
+            foliage.position.y = 2.5;
+            foliage.castShadow = true;
+            treeGroup.add(foliage);
+            
+            treeGroup.position.set(x, 0, z);
+            scene.add(treeGroup);
+            trees.push(treeGroup);
+            
+            return treeGroup;
+        }
+        
+        // Generate forest
+        for (let i = 0; i < 100; i++) {
+            // Avoid placing trees on the road
+            let x, z;
+            do {
+                x = (Math.random() - 0.5) * 180;
+                z = (Math.random() - 0.5) * 180;
+            } while (Math.abs(x) < 2); // Keep trees away from road
+            
+            createTree(x, z);
+        }
+        
+        // Create targets
+        function createTarget(x, z) {
+            const targetGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+            const targetMaterial = new THREE.MeshStandardMaterial({ color: 0xFF0000 });
+            const target = new THREE.Mesh(targetGeometry, targetMaterial);
+            target.position.set(x, 0.75, z);
+            target.castShadow = true;
+            target.userData = { isTarget: true, hit: false };
+            scene.add(target);
+            targets.push(target);
+            return target;
+        }
+        
+        // Generate targets along the road
+        for (let i = 0; i < 20; i++) {
+            const z = (Math.random() - 0.5) * 180;
+            const side = Math.random() > 0.5 ? 1 : -1;
+            createTarget(side * (2 + Math.random() * 3), z);
+        }
+        
+        // Create bullet
+        function createBullet() {
+            if (!canShoot) return;
+            
+            canShoot = false;
+            setTimeout(() => { canShoot = true; }, 500); // Cooldown
+            
+            const bulletGeometry = new THREE.SphereGeometry(0.05, 8, 8);
+            const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xFFFF00 });
+            const bullet = new THREE.Mesh(bulletGeometry, bulletMaterial);
+            
+            // Position bullet at gun position
+            bullet.position.copy(camera.position);
+            
+            // Get direction from camera
+            const direction = new THREE.Vector3();
+            camera.getWorldDirection(direction);
+            
+            bullet.userData = { 
+                direction: direction,
+                distance: 0,
+                maxDistance: 100
+            };
+            
+            scene.add(bullet);
+            bullets.push(bullet);
+            
+            // Play sound
+            playSound('shoot');
+        }
+        
+        // Simple sound effects (mock implementation)
+        function playSound(type) {
+            console.log(`Playing sound: ${type}`);
+            // In a real game, you would use the Web Audio API
+        }
+        
+        // Update UI counters
+        function updateCoins(value) {
+            coins += value;
+            document.getElementById('coins').textContent = coins;
+        }
+        
+        function updateZombieCount() {
+            zombieCount = zombies.length;
+            document.getElementById('zombies').textContent = zombieCount;
+        }
+        
+        // Handle bullet collision
+        function checkBulletCollisions(bullet) {
+            const raycaster = new THREE.Raycaster(
+                bullet.position,
+                bullet.userData.direction,
+                0,
+                0.5 // Check only immediate vicinity
+            );
+            
+            // Check collisions with targets
+            const targetIntersects = raycaster.intersectObjects(targets);
+            if (targetIntersects.length > 0) {
+                const target = targetIntersects[0].object;
+                if (!target.userData.hit) {
+                    target.userData.hit = true;
+                    target.material.color.set(0x00FF00); // Turn green when hit
+                    updateCoins(10);
+                    playSound('coin');
+                    
+                    // Remove target after a delay
+                    setTimeout(() => {
+                        scene.remove(target);
+                        const index = targets.indexOf(target);
+                        if (index > -1) {
+                            targets.splice(index, 1);
+                        }
+                    }, 1000);
+                    
+                    return true;
+                }
+            }
+            
+            // Check collision with zombies
+            for (let i = 0; i < zombies.length; i++) {
+                const zombie = zombies[i];
+                const zombieIntersects = raycaster.intersectObject(zombie, true);
+                
+                if (zombieIntersects.length > 0) {
+                    zombie.userData.health -= 50; // Reduce zombie health
+                    
+                    if (zombie.userData.health <= 0) {
+                        // Zombie defeated
+                        scene.remove(zombie);
+                        zombies.splice(i, 1);
+                        updateZombieCount();
+                        updateCoins(25); // Reward for defeating zombie
+                        playSound('zombie-death');
+                        
+                        // Maybe spawn a new zombie after a while
+                        setTimeout(() => {
+                            if (zombies.length < 3) {
+                                const x = (Math.random() - 0.5) * 160;
+                                const z = (Math.random() - 0.5) * 160;
+                                zombies.push(createZombie(x, z));
+                                updateZombieCount();
+                            }
+                        }, 30000); // 30 seconds
+                    } else {
+                        // Zombie hit but not defeated
+                        playSound('zombie-hit');
+                        
+                        // Flash zombie red
+                        zombie.children.forEach(part => {
+                            if (part.material && part.material.color) {
+                                const originalColor = part.material.color.clone();
+                                part.material.color.set(0xFF0000);
+                                setTimeout(() => {
+                                    part.material.color.copy(originalColor);
+                                }, 100);
+                            }
+                        });
+                    }
+                    
+                    return true;
+                }
+            }
+            
+            // Check collision with Satoshi
+            const satoshiIntersects = raycaster.intersectObject(satoshi, true);
+            if (satoshiIntersects.length > 0) {
+                if (!satoshi.userData.found) {
+                    satoshi.userData.found = true;
+                    alert("You found Satoshi! +50 coins");
+                    updateCoins(50);
+                    
+                    // Make Satoshi wave
+                    const rightArm = satoshi.children[3]; // Right arm is the 4th child
+                    const originalRotation = rightArm.rotation.z;
+                    
+                    // Simple animation
+                    const waveAnimation = setInterval(() => {
+                        rightArm.rotation.z = originalRotation - 0.5 * Math.sin(Date.now() * 0.01);
+                    }, 16);
+                    
+                    // Stop wave after 3 seconds
+                    setTimeout(() => {
+                        clearInterval(waveAnimation);
+                        rightArm.rotation.z = originalRotation;
+                        
+                        // Make Satoshi disappear
+                        setTimeout(() => {
+                            scene.remove(satoshi);
+                        }, 2000);
+                    }, 3000);
+                    
+                    return true;
+                }
+            }
+            
+            return false;
+        }
+        
+        // Movement controls
+        const velocity = new THREE.Vector3();
+        const direction = new THREE.Vector3();
+        let moveForward = false;
+        let moveBackward = false;
+        let moveLeft = false;
+        let moveRight = false;
+        
+        document.addEventListener('keydown', (event) => {
+            if (!playerCanMove) return;
+            
+            switch (event.code) {
+                case 'KeyW': moveForward = true; break;
+                case 'KeyS': moveBackward = true; break;
+                case 'KeyA': moveLeft = true; break;
+                case 'KeyD': moveRight = true; break;
+            }
+        });
+        
+        document.addEventListener('keyup', (event) => {
+            switch (event.code) {
+                case 'KeyW': moveForward = false; break;
+                case 'KeyS': moveBackward = false; break;
+                case 'KeyA': moveLeft = false; break;
+                case 'KeyD': moveRight = false; break;
+            }
+        });
+        
+        // Mouse look controls
+        let isMouseLocked = false;
+        
+        renderer.domElement.addEventListener('click', () => {
+            if (!isMouseLocked) {
+                renderer.domElement.requestPointerLock();
+            } else {
+                createBullet();
+            }
+        });
+        
+        document.addEventListener('pointerlockchange', () => {
+            isMouseLocked = document.pointerLockElement === renderer.domElement;
+        });
+        
+        document.addEventListener('mousemove', (event) => {
+            if (isMouseLocked) {
+                const movementX = event.movementX || 0;
+                const movementY = event.movementY || 0;
+                
+                camera.rotation.y -= movementX * 0.002;
+                camera.rotation.x -= movementY * 0.002;
+                
+                // Limit vertical look
+                camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
+            }
+        });
+        
+        // Physics and collision detection
+        function checkPlayerCollisions() {
+            const playerPos = camera.position.clone();
+            playerPos.y = 0;
+            
+            // Check collision with trees
+            for (const tree of trees) {
+                const treePos = tree.position.clone();
+                treePos.y = 0;
+                
+                const distance = playerPos.distanceTo(treePos);
+                if (distance < 1.2) {
+                    // Push player away
+                    const pushDir = new THREE.Vector3().subVectors(playerPos, treePos).normalize();
+                    camera.position.x += pushDir.x * 0.1;
+                    camera.position.z += pushDir.z * 0.1;
+                }
+            }
+            
+            // Check for Satoshi proximity (if not found yet)
+            if (satoshi.parent && !satoshi.userData.found) {
+                const satoshiPos = satoshi.position.clone();
+                satoshiPos.y = 0;
+                
+                const distance = playerPos.distanceTo(satoshiPos);
+                if (distance < 5) {
+                    // Make him more noticeable when player is close
+                    satoshi.rotation.y += 0.02;
+                    
+                    const bitcoinBadge = satoshi.children[8]; // Badge is the 9th child
+                    bitcoinBadge.rotation.z += 0.05;
+                    bitcoinBadge.material.emissive = new THREE.Color(0xFFD700);
+                    bitcoinBadge.material.emissiveIntensity = 0.3 + 0.2 * Math.sin(Date.now() * 0.005);
+                } else {
+                    satoshi.rotation.y = 0;
+                }
+            }
+            
+            // Check zombie collisions
+            for (const zombie of zombies) {
+                const zombiePos = zombie.position.clone();
+                zombiePos.y = 0;
+                
+                const distance = playerPos.distanceTo(zombiePos);
+                if (distance < 1) {
+                    // Zombie hit player
+                    updateCoins(-5); // Lose coins
+                    
+                    // Push player away
+                    const pushDir = new THREE.Vector3().subVectors(playerPos, zombiePos).normalize();
+                    camera.position.x += pushDir.x * 0.5;
+                    camera.position.z += pushDir.z * 0.5;
+                    
+                    // Screen flash red
+                    document.body.style.backgroundColor = "red";
+                    setTimeout(() => {
+                        document.body.style.backgroundColor = "";
+                    }, 100);
+                    
+                    playSound('player-hit');
+                }
+            }
+        }
+        
+        // Update zombie behavior
+        function updateZombies() {
+            for (const zombie of zombies) {
+                // Get direction to player
+                const playerPos = camera.position.clone();
+                const zombiePos = zombie.position.clone();
+                const dirToPlayer = new THREE.Vector3().subVectors(playerPos, zombiePos).normalize();
+                
+                // Rotate zombie to face player
+                zombie.rotation.y = Math.atan2(dirToPlayer.x, dirToPlayer.z);
+                
+                // Move zombie towards player
+                zombie.position.x += dirToPlayer.x * zombie.userData.speed;
+                zombie.position.z += dirToPlayer.z * zombie.userData.speed;
+                
+                // Animate zombie walking
+                const time = Date.now() * 0.001;
+                const leftLeg = zombie.children[6]; // Left leg
+                const rightLeg = zombie.children[7]; // Right leg
+                const leftArm = zombie.children[2]; // Left arm
+                const rightArm = zombie.children[3]; // Right arm
+                
+                // Swing arms and legs
+                leftLeg.rotation.x = Math.sin(time * 2) * 0.3;
+                rightLeg.rotation.x = -Math.sin(time * 2) * 0.3;
+                leftArm.rotation.x = -Math.sin(time * 2) * 0.3;
+                rightArm.rotation.x = Math.sin(time * 2) * 0.3;
+                
+                // Check for collisions with trees
+                for (const tree of trees) {
+                    const treePos = tree.position.clone();
+                    treePos.y = 0;
+                    zombiePos.y = 0;
+                    
+                    const distance = zombiePos.distanceTo(treePos);
+                    if (distance < 1.2) {
+                        // Push zombie away from tree
+                        const pushDir = new THREE.Vector3().subVectors(zombiePos, treePos).normalize();
+                        zombie.position.x += pushDir.x * 0.05;
+                        zombie.position.z += pushDir.z * 0.05;
+                    }
+                }
+            }
+        }
+        
+        // Animation and game loop
+        const clock = new THREE.Clock();
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const delta = clock.getDelta();
+            
+            // Update player movement
+            if (playerCanMove) {
+                velocity.x = 0;
+                velocity.z = 0;
+                
+                direction.z = Number(moveForward) - Number(moveBackward);
+                direction.x = Number(moveRight) - Number(moveLeft);
+                direction.normalize();
+                
+                // Move player
+                if (moveForward || moveBackward) velocity.z -= direction.z * 5.0 * delta;
+                if (moveLeft || moveRight) velocity.x -= direction.x * 5.0 * delta;
+                
+                // Convert velocity to player's direction
+                const rotateY = new THREE.Matrix4().makeRotationY(camera.rotation.y);
+                velocity.applyMatrix4(rotateY);
+                
+                camera.position.x += velocity.x;
+                camera.position.z += velocity.z;
+                
+                // Keep player on the ground
+                camera.position.y = 1.6;
+            }
+            
+            // Check collisions
+            checkPlayerCollisions();
+            
+            // Update zombies
+            updateZombies();
+            
+            // Update bullets
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const bullet = bullets[i];
+                
+                // Move bullet
+                bullet.position.add(
+                    bullet.userData.direction.clone().multiplyScalar(0.5)
+                );
+                
+                // Track distance
+                bullet.userData.distance += 0.5;
+                
+                // Check collision
+                const hit = checkBulletCollisions(bullet);
+                
+                // Remove bullet if it hit something or went too far
+                if (hit || bullet.userData.distance > bullet.userData.maxDistance) {
+                    scene.remove(bullet);
+                    bullets.splice(i, 1);
+                }
+            }
+            
+            // Render scene
+            renderer.render(scene, camera);
+        }
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        // Start the game
+        animate();
+    </script>
+</body>
+</html>
